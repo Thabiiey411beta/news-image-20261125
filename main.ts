@@ -1,73 +1,55 @@
-// make.fun entry: news-image — "Sum up the day's world news in one image".
-//
-// The front page lives in this repo as entry.png (1024x1024, drawn with
-// render.py from stories.json in the winner layout: 30+ dated stories,
-// verification labels, sources, numbers panel, map, date check). This
-// program ships it to the output directory byte-for-byte, after
-// confirming it really is a PNG, is exactly 1024x1024, and fits the
-// 1 MiB limit, so a damaged file fails loudly instead of silently
-// submitting garbage. Node 22, standard library only, no network.
-//
-// Try it outside the grader with:
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+// Entry program for make.fun news-image-20261125.
+// The image was rendered offline (see README.md) and is held in this
+// repository as entry.png. This program verifies it and copies it to
+// the output directory. It uses no network and is fully deterministic:
+// the same input bytes always produce the same output bytes.
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { copyFileSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 
-const IMAGE = new URL('./entry.png', import.meta.url);
-const OUTPUT_DIR = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
-const TARGET = join(OUTPUT_DIR, 'entry.png');
-
-const PNG_SIGNATURE = Buffer.from([
-  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-]);
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const MAX_BYTES = 1024 * 1024;
-
-if (!existsSync(IMAGE)) {
-  throw new Error('entry.png is missing from the repository');
-}
-
-const data = readFileSync(IMAGE);
-
-if (data.length < PNG_SIGNATURE.length) {
-  throw new Error('entry.png is too short to be a PNG file');
-}
-if (!data.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) {
-  throw new Error('entry.png does not start with the PNG signature');
-}
-if (data.length > MAX_BYTES) {
-  throw new Error(
-    `entry.png is ${data.length} bytes, over the ${MAX_BYTES} byte limit`,
-  );
-}
-
-// The front page must be exactly 1024x1024: read the width and height
-// from the PNG IHDR chunk (bytes 16-23, big-endian uint32) and reject
-// anything else, so a wrongly-sized image fails loudly here.
 const EXPECTED_WIDTH = 1024;
 const EXPECTED_HEIGHT = 1024;
-const IHDR_LENGTH = 25; // signature (8) + length (4) + "IHDR" (4) + width (4) + height (4) + 1
-if (data.length < IHDR_LENGTH) {
-  throw new Error('entry.png is too short to contain a PNG IHDR chunk');
+
+const input = join(import.meta.dirname, "entry.png");
+const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
+const output = join(outDir, "entry.png");
+
+const data = readFileSync(input);
+
+// The file must be a PNG.
+if (data.length < 33 || !data.subarray(0, 8).equals(PNG_MAGIC)) {
+  throw new Error("entry.png is not a PNG file");
 }
-if (data.subarray(12, 16).toString('ascii') !== 'IHDR') {
-  throw new Error('entry.png has no IHDR chunk where one is expected');
+
+// It must fit the bounty size cap.
+if (data.length > MAX_BYTES) {
+  throw new Error(`entry.png is ${data.length} bytes, over the 1 MiB limit`);
+}
+
+// The file must end with a proper IEND chunk, so a truncated PNG
+// is rejected instead of being copied out half-written.
+const tail = data.subarray(data.length - 12);
+if (tail.readUInt32BE(0) !== 0 || tail.subarray(4, 8).toString("ascii") !== "IEND") {
+  throw new Error("entry.png is truncated: missing IEND chunk");
+}
+
+// The first chunk must be IHDR, and the image must be exactly 1024x1024.
+const chunkType = data.subarray(12, 16).toString("ascii");
+if (chunkType !== "IHDR") {
+  throw new Error(`entry.png first chunk is ${chunkType}, expected IHDR`);
 }
 const width = data.readUInt32BE(16);
 const height = data.readUInt32BE(20);
 if (width !== EXPECTED_WIDTH || height !== EXPECTED_HEIGHT) {
   throw new Error(
-    `entry.png is ${width}x${height}, expected exactly ${EXPECTED_WIDTH}x${EXPECTED_HEIGHT}`,
+    `entry.png is ${width}x${height}, expected ${EXPECTED_WIDTH}x${EXPECTED_HEIGHT}`,
   );
 }
 
-mkdirSync(OUTPUT_DIR, { recursive: true });
-copyFileSync(IMAGE, TARGET);
+mkdirSync(outDir, { recursive: true });
+copyFileSync(input, output);
 
-// Read the copy back and confirm it is the same file we checked:
-// a partial write must never pass as a successful entry.
-const shipped = readFileSync(TARGET);
-if (!shipped.equals(data)) {
-  throw new Error('the copied entry.png does not match the source image');
-}
-console.log(`wrote ${TARGET} (${data.length} bytes)`);
+const written = statSync(output).size;
+console.log(`wrote ${written} bytes to ${output}`);

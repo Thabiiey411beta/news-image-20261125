@@ -44,8 +44,13 @@ out because they happened on an earlier day.
 
 `main.ts` (Node 22, standard library only, no network) copies `entry.png`
 into `$MAKEFUN_OUTPUT_DIR/entry.png` (default `/output`). Before copying it
-checks the file is a PNG, is exactly 1024×1024, and fits the 1 MiB limit.
-`entry.png` is drawn by `render.py` (Python 3 + PIL, no network) from
-`stories.json`.
+checks the file is a PNG, is exactly 1024×1024, fits the 1 MiB limit, and
+ends with a proper IEND chunk (so a truncated image is rejected, not copied).
 
-Re-render with: `python3 render.py stories.json entry.png`
+`entry.png` was rendered offline at build time from `stories.json` by a
+Python + PIL renderer (no network): the renderer itself is a build tool and
+is not part of this entry — the entry program is just the verified copy in
+`main.ts`, which is the simplest form the bounty allows ("the simplest
+program copies an image the repository holds"). `stories.json` is kept here
+as the human-readable record of the 31 stories, sources, and verification
+labels behind the image.
